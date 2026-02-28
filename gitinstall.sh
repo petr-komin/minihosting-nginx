@@ -112,16 +112,20 @@ echo "=== Kontrola systému ==="
 
 MISSING=0
 
-if command -v nginx &> /dev/null; then
-    echo "  [OK] Nginx: $(nginx -v 2>&1)"
+NGINX_BIN=$(command -v nginx 2>/dev/null || echo "")
+[ -z "$NGINX_BIN" ] && [ -x /usr/sbin/nginx ] && NGINX_BIN="/usr/sbin/nginx"
+if [ -n "$NGINX_BIN" ]; then
+    echo "  [OK] Nginx: $($NGINX_BIN -v 2>&1)"
 else
     echo "  [!!] Nginx není nainstalován:"
     echo "       sudo apt install nginx"
     MISSING=1
 fi
 
-if command -v certbot &> /dev/null; then
-    echo "  [OK] Certbot: $(certbot --version 2>&1)"
+CERTBOT_BIN=$(command -v certbot 2>/dev/null || echo "")
+[ -z "$CERTBOT_BIN" ] && [ -x /usr/bin/certbot ] && CERTBOT_BIN="/usr/bin/certbot"
+if [ -n "$CERTBOT_BIN" ]; then
+    echo "  [OK] Certbot: $($CERTBOT_BIN --version 2>&1)"
 else
     echo "  [!!] Certbot není nainstalován (volitelné, pro SSL):"
     echo "       sudo apt install certbot python3-certbot-nginx"
@@ -133,13 +137,13 @@ if [ -f "$SUDOERS_FILE" ]; then
     echo "  [OK] Sudoers: $SUDOERS_FILE"
 else
     CURRENT_USER=$(whoami)
-    NGINX_BIN=$(which nginx 2>/dev/null || echo "/usr/sbin/nginx")
-    CERTBOT_BIN=$(which certbot 2>/dev/null || echo "/usr/bin/certbot")
+    SUDO_NGINX="${NGINX_BIN:-/usr/sbin/nginx}"
+    SUDO_CERTBOT="${CERTBOT_BIN:-/usr/bin/certbot}"
     echo "  [!!] Sudoers soubor chybí: $SUDOERS_FILE"
     echo "       Vytvořte ho:"
     echo "         sudo visudo -f $SUDOERS_FILE"
     echo "       S obsahem:"
-    echo "         ${CURRENT_USER} ALL=(ALL) NOPASSWD: ${NGINX_BIN}, ${CERTBOT_BIN}"
+    echo "         ${CURRENT_USER} ALL=(ALL) NOPASSWD: ${SUDO_NGINX}, ${SUDO_CERTBOT}"
     MISSING=1
 fi
 
