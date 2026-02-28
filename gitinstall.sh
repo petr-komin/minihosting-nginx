@@ -42,11 +42,18 @@ echo ""
 # --- [1/5] Git pull ---
 echo "[1/5] Stahování poslední verze z origin/${BRANCH}..."
 
-# Kontrola lokálních změn
+# Zahodit generované soubory, které npm install přegeneruje
+git checkout -- package-lock.json 2>/dev/null || true
+git checkout -- server/package-lock.json 2>/dev/null || true
+git checkout -- client/package-lock.json 2>/dev/null || true
+
+# Zahodit buildnuté soubory (dist/ je v .gitignore, ale pro jistotu)
+git checkout -- '*.lock' 2>/dev/null || true
+
+# Pokud zůstaly jiné lokální změny, resetovat vše
 if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    echo "  VAROVÁNÍ: Máte lokální změny. Provádím stash..."
-    git stash
-    GIT_STASHED=1
+    echo "  VAROVÁNÍ: Lokální změny detekovány, resetuji..."
+    git reset --hard HEAD
 fi
 
 git pull origin "$BRANCH" 2>&1 | tail -5
@@ -97,13 +104,6 @@ else
     echo "  Nebo nainstalujte PM2:"
     echo "    npm install -g pm2"
     echo "    NODE_ENV=production pm2 start server/dist/index.js --name ${APP_NAME}"
-fi
-
-# --- Obnovení stashnutých změn ---
-if [ "${GIT_STASHED:-0}" = "1" ]; then
-    echo ""
-    echo "  Obnovuji vaše lokální změny (git stash pop)..."
-    git stash pop || echo "  VAROVÁNÍ: Nepodařilo se obnovit stash. Použijte 'git stash list'."
 fi
 
 # --- Systémové požadavky (jen info) ---
