@@ -8,74 +8,44 @@ Webova aplikace pro spravu webhostingu nad Nginx. Generuje konfiguracni soubory,
 - Generuje soubory do `/etc/nginx/sites-available/`, spravuje symlinky v `/etc/nginx/sites-enabled/`
 - Testuje konfiguraci (`nginx -t`) a reloaduje Nginx (`nginx -s reload`)
 - Generuje SSL certifikaty pres Certbot (Let's Encrypt)
+- Importuje existujici Nginx konfigurace ze serveru
+- Monitoring serveru (CPU, RAM, disk, load, sit, procesy)
 - Jedno admin konto, heslo se nastavi pri prvnim spusteni
+- Ceske UI
 
 ## Pozadavky
 
-- **Node.js 20+** (nebo 22+)
+- **Node.js 20+**
 - **Nginx** nainstalovan na hostu
-- **Certbot** (volitelne, pro SSL) — `sudo apt install certbot python3-certbot-nginx`
+- **Certbot** (volitelne, pro SSL)
 
 ## Instalace
 
 ```bash
 git clone <repo-url> /opt/hostingy
 cd /opt/hostingy
-./install.sh
 ```
 
-Skript nainstaluje zavislosti, zbuilduje frontend i backend, a nabidne automaticke nastaveni sudo.
-
-### Rucni instalace
+### 1. Zavislosti a build
 
 ```bash
 npm install
 npm run build
 ```
 
-## Nastaveni sudo
-
-Hostingy potrebuje spoustet prikazy `nginx` a `certbot` pres sudo bez hesla. Instalacni skript to nabidne automaticky, ale lze nastavit i rucne:
-
-```bash
-sudo visudo -f /etc/sudoers.d/hostingy
-```
-
-Vlozit (nahradit `uzivatel` za skutecne jmeno uzivatele ktery spousti aplikaci):
-
-```
-uzivatel ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /usr/bin/certbot
-```
-
-Overit platnost:
-
-```bash
-sudo visudo -cf /etc/sudoers.d/hostingy
-```
-
-### Co presne sudo pouziva
-
-| Prikaz | Ucel |
-|---|---|
-| `sudo nginx -t` | Test konfigurace pred reloadem |
-| `sudo nginx -s reload` | Reload Nginx |
-| `sudo certbot certonly --nginx ...` | Generovani SSL certifikatu |
-| `sudo certbot certonly --webroot ...` | Alternativni metoda generovani SSL |
-| `sudo certbot renew ...` | Obnova certifikatu |
-| `sudo certbot certificates ...` | Info o certifikatu |
-
-## Konfigurace (.env)
-
-Zkopirujte `.env.example` do `.env` a upravte:
+### 2. Konfigurace
 
 ```bash
 cp .env.example .env
+nano .env
 ```
+
+Dulezite: nastavte `JWT_SECRET` na nahodny retezec a `PORT` na pozadovany port.
 
 | Promenna | Vychozi | Popis |
 |---|---|---|
 | `PORT` | `3000` | Port aplikace |
-| `JWT_SECRET` | — | **Zmenit v produkci!** Nahodny retezec pro JWT tokeny |
+| `JWT_SECRET` | — | **Zmenit!** Nahodny retezec pro JWT tokeny |
 | `DB_PATH` | `server/data/hostingy.db` | Cesta k SQLite databazi |
 | `NGINX_SITES_AVAILABLE` | `/etc/nginx/sites-available` | Kam se zapisuji konfigurace |
 | `NGINX_SITES_ENABLED` | `/etc/nginx/sites-enabled` | Kde se spravuji symlinky |
@@ -84,25 +54,58 @@ cp .env.example .env
 | `CERTBOT_WEBROOT` | `/var/www/certbot` | Webroot pro ACME challenge |
 | `NODE_ENV` | `production` | Prostredi |
 
-## Spusteni
+### 3. Sudo pro Nginx a Certbot
 
-### Primo
+Aplikace potrebuje spoustet `nginx` a `certbot` pres sudo bez hesla:
+
+```bash
+sudo visudo -f /etc/sudoers.d/hostingy
+```
+
+Vlozit (nahradit `uzivatel` za uzivatele ktery spousti aplikaci):
+
+```
+uzivatel ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /usr/bin/certbot
+```
+
+Overit:
+
+```bash
+sudo visudo -cf /etc/sudoers.d/hostingy
+```
+
+### 4. Prava na Nginx adresare
+
+Uzivatel musi mit pravo zapisu do `sites-available` a `sites-enabled`:
+
+```bash
+# Varianta A: vlastnictvi
+sudo chown $USER /etc/nginx/sites-available
+sudo chown $USER /etc/nginx/sites-enabled
+
+# Varianta B: pres skupinu www-data
+sudo usermod -aG www-data $USER
+sudo chgrp www-data /etc/nginx/sites-available /etc/nginx/sites-enabled
+sudo chmod g+w /etc/nginx/sites-available /etc/nginx/sites-enabled
+```
+
+### 5. Spusteni
+
+**Primo:**
 
 ```bash
 NODE_ENV=production node server/dist/index.js
 ```
 
-### PM2
+**PM2:**
 
 ```bash
-pm2 start server/dist/index.js --name hostingy
+NODE_ENV=production pm2 start server/dist/index.js --name hostingy
 pm2 save
 pm2 startup
 ```
 
-### Systemd
-
-Vytvorit `/etc/systemd/system/hostingy.service`:
+**Systemd** — vytvorit `/etc/systemd/system/hostingy.service`:
 
 ```ini
 [Unit]
@@ -111,7 +114,7 @@ After=network.target nginx.service
 
 [Service]
 Type=simple
-User=manx
+User=vas-uzivatel
 WorkingDirectory=/opt/hostingy
 ExecStart=/usr/bin/node server/dist/index.js
 Environment=NODE_ENV=production
@@ -132,23 +135,17 @@ sudo systemctl start hostingy
 
 ## Prvni spusteni
 
-1. Otevrit `http://server:3000` v prohlizeci (nebo `https://hostingy.example.com` pokud mate Nginx proxy)
+1. Otevrit `http://server:PORT` v prohlizeci
 2. Zobrazi se formular pro nastaveni hesla administratora
-3. Po nastaveni hesla se zobrazi prihlasovaci obrazovka
-4. V **Nastaveni** vyplnit e-mail pro Certbot (nutne pro generovani SSL)
+3. V **Nastaveni** vyplnit e-mail pro Certbot (nutne pro generovani SSL)
 
 ## Nginx proxy pro Hostingy
 
-Hostingy bezi na portu 3000 (Express servíruje API i frontend). Pro pristup pres doménu s HTTPS vytvorte Nginx konfiguraci:
-
-```bash
-sudo nano /etc/nginx/sites-available/hostingy.conf
-```
+Pro pristup pres domenu s HTTPS:
 
 ```nginx
 server {
     server_name hostingy.example.com;
-
     listen 80;
     listen [::]:80;
 
@@ -163,36 +160,23 @@ server {
 }
 ```
 
-Aktivovat a reloadnout:
-
 ```bash
 sudo ln -s /etc/nginx/sites-available/hostingy.conf /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo nginx -s reload
-```
-
-Pak pridat SSL pres Certbot:
-
-```bash
+sudo nginx -t && sudo nginx -s reload
 sudo certbot --nginx -d hostingy.example.com
 ```
 
-Certbot automaticky upravi konfiguraci na HTTPS a prida redirect z HTTP.
+## SSL certifikaty pro spravovane weby
 
-> **Poznamka:** Tato konfigurace je pro pristup k samotne Hostingy aplikaci.
-> Konfigurace pro spravovane weby (ty co vytvarite v Hostingy) se generuji automaticky do `/etc/nginx/sites-available/hostingy_*.conf`.
+Certbot overuje vlastnictvi domeny pres HTTP challenge, proto je nutne:
 
-## Jak funguje generovani SSL certifikatu
-
-Certbot potrebuje overit vlastnictvi domeny pres HTTP challenge. Proto je nutne dodrzet poradi:
-
-1. Vytvorit web **bez SSL** (ciste HTTP na portu 80)
+1. Vytvorit web **bez SSL** (HTTP na portu 80)
 2. Ulozit a provest **reload Nginx**
 3. Overit ze `http://domena.cz` odpovida (DNS musi smerovat na server)
-4. Teprve pak **vygenerovat certifikat** (tlacitko v editaci webu)
-5. Aplikace automaticky zapne SSL a pregeneruje konfiguraci na HTTPS
+4. **Vygenerovat certifikat** (tlacitko v editaci webu)
+5. Aplikace automaticky zapne SSL a pregeneruje konfiguraci
 
-Tlacitko pro generovani certifikatu je v UI zablokovane dokud neni HTTP konfigurace aktivni.
+U importovanych webu ktere uz SSL maji se zobrazi stav "SSL je aktivni".
 
 ## Kam se co uklada
 
@@ -205,28 +189,6 @@ Tlacitko pro generovani certifikatu je v UI zablokovane dokud neni HTTP konfigur
 | Build frontend | `client/dist/` |
 | Build backend | `server/dist/` |
 
-## Opravneni na slozky
-
-Uzivatel ktery spousti Hostingy musi mit pravo zapisu do:
-
-```bash
-# Nginx konfigurace
-sudo chown $USER /etc/nginx/sites-available
-sudo chown $USER /etc/nginx/sites-enabled
-
-# Nebo specificke soubory
-sudo chown $USER /etc/nginx/sites-available/hostingy_*
-sudo chown $USER /etc/nginx/sites-enabled/hostingy_*
-```
-
-Alternativne lze konfiguraci zapisovat pres skupinu `www-data`:
-
-```bash
-sudo usermod -aG www-data $USER
-sudo chgrp www-data /etc/nginx/sites-available /etc/nginx/sites-enabled
-sudo chmod g+w /etc/nginx/sites-available /etc/nginx/sites-enabled
-```
-
 ## Vyvoj
 
 ```bash
@@ -234,30 +196,28 @@ npm install
 npm run dev
 ```
 
-Spusti soucasne backend (tsx watch, port 3000) a frontend (Vite dev server, port 5173) s hot reload. Vite proxy smeruje `/api/*` na backend.
+Spusti soucasne backend (tsx watch) a frontend (Vite dev server) s hot reload. Vite proxy smeruje `/api/*` na backend.
 
-## Struktura projektu
+## Struktura
 
 ```
 hostingy/
-├── server/                 # Express.js backend (TypeScript)
-│   └── src/
-│       ├── index.ts        # Hlavni vstup, Express server
-│       ├── config.ts       # Konfigurace z env promennych
-│       ├── db/             # SQLite databaze + migrace
-│       ├── auth/           # JWT autentizace, setup wizard
-│       ├── sites/          # CRUD pro weby, Zod validace
-│       ├── nginx/          # Generovani konfiguraci, reload
-│       ├── ssl/            # Certbot integrace
-│       └── settings/       # Nastaveni aplikace
-├── client/                 # Vue 3 SPA frontend
-│   └── src/
-│       ├── views/          # Stranky (Login, Dashboard, SiteEdit, ...)
-│       ├── stores/         # Pinia stores
-│       ├── components/     # NginxPreview aj.
-│       └── api/            # Axios klient
-├── examples/               # Referencni Nginx konfigurace
-├── install.sh              # Instalacni skript
-├── .env.example            # Vzor konfigurace
-└── package.json            # Monorepo s workspaces
+├── server/src/
+│   ├── index.ts          # Express server
+│   ├── config.ts         # Konfigurace z env
+│   ├── db/               # SQLite + migrace
+│   ├── auth/             # JWT, setup wizard
+│   ├── sites/            # CRUD, Zod validace
+│   ├── nginx/            # Config generator, parser, import
+│   ├── ssl/              # Certbot integrace
+│   ├── monitor/          # Server monitoring
+│   └── settings/         # Nastaveni aplikace
+├── client/src/
+│   ├── views/            # Login, Dashboard, SiteEdit, Import, Monitor, ...
+│   ├── stores/           # Pinia stores
+│   ├── components/       # NginxPreview
+│   └── api/              # Axios klient
+├── examples/             # Referencni Nginx konfigurace
+├── .env.example
+└── package.json          # Monorepo (npm workspaces)
 ```
