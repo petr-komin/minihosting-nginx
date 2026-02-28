@@ -32,7 +32,7 @@ fi
 if [ ! -d ".git" ]; then
     echo "CHYBA: Tento adresář není git repozitář."
     echo "Nejprve naklonujte repo:"
-    echo "  git clone git@github.com:petr-komin/minihosting-nginx.git"
+    echo "  git clone https://github.com/petr-komin/minihosting-nginx.git"
     exit 1
 fi
 
